@@ -11,7 +11,6 @@ BUFFER_SIZE = 1024
 DEBUG = True
 
 usuarios = None
-
 class ClientThread(Thread): 
  
     def __init__(self,ip,port,client_sk): 
@@ -62,7 +61,7 @@ class ClientThread(Thread):
                     exit_sucesso = True
                     self.login(entrada[1], entrada[2])
 
-                # self.socket.sendall(data)
+                self.socket.sendall(data)
         if (exit_sucesso == False):
             self.conexao_perdida()
         sys.exit()
@@ -80,15 +79,14 @@ class ClientThread(Thread):
 
     def login(self):
         print("Entrou login")
-        wrappedSocket = ssl.wrap_socket(self.socket, server_side=True, keyfile="cert/MyKey.key", certfile="cert/MyCertificate.crt")
-        credentials = wrappedSocket.recv(1024)
-        print("Credenciais", credentials)
-        self.socket = wrappedSocket.unwrap()
-        print("->",self.socket.recv(1024))
-        return
-
-
-
+        # Realiza o wrap no socket e retorna um socket SSL
+        socket_ssl = ssl.wrap_socket(self.socket, server_side=True, keyfile="cert/MyKey.key", certfile="cert/MyCertificate.crt")
+        # Recebe as credenciais de forma segura
+        credentials = socket_ssl.recv(1024)
+        # Realiza o unwrap e retorna um socket comum
+        self.socket = socket_ssl.unwrap()
+        return True
+        
     def leaders():
         pass
 
@@ -103,8 +101,7 @@ class ClientThread(Thread):
         print("logout")
         pass
 
-    def logout():
-        print("logout")
+    def logout(self):
         pass
 
     def exit(self):

@@ -79,11 +79,15 @@ class ClientThread(Thread):
         pass
 
     def login(self):
-        print("login")
+        print("Entrou login")
         wrappedSocket = ssl.wrap_socket(self.socket, server_side=True, keyfile="cert/MyKey.key", certfile="cert/MyCertificate.crt")
-        # self.socket.sendall('ok')
-        print("wrappedSocket", wrappedSocket.recv(1280))
-        input("fsd")
+        credentials = wrappedSocket.recv(1024)
+        print("Credenciais", credentials)
+        self.socket = wrappedSocket.unwrap()
+        print("->",self.socket.recv(1024))
+        return
+
+
 
     def leaders():
         pass

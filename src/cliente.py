@@ -12,11 +12,12 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         v = input("Mensagem: ")
         comando = v.split()
         if (comando[0] == "login"):
+            print("Entrou Login")
             s.sendall(bytes('login', 'ascii'))
-            # s.recv(1024)
             wrappedSocket = ssl.wrap_socket(s, keyfile="cert/MyKey.key", certfile="cert/MyCertificate.crt")
-            wrappedSocket.send(bytes('login 6542315 648564', 'ascii'))
-            input("fds")
+            wrappedSocket.send(bytes('6542315 648564', 'ascii'))
+            s = wrappedSocket.unwrap()
+            s.send(bytes('banana', 'ascii'))
 
         if (v == "exit"):
             break

@@ -1,71 +1,74 @@
-import sys
 import json
-import socket 
+import socket
 import ssl
+import sys
 from threading import Thread
+from time import sleep
 
 # Multithreaded Python server : TCP Server Socket Program Stub
 TCP_IP = '127.0.0.1'
-TCP_PORT = 4000 
+TCP_PORT = 4000
 BUFFER_SIZE = 1024
 DEBUG = True
 
-usuarios = None
-class ClientThread(Thread): 
- 
-    def __init__(self,ip,port,client_sk): 
-        Thread.__init__(self) 
-        self.ip = ip 
+usuarios = []
+
+
+class ClientThread(Thread):
+
+    def __init__(self, ip, port, client_sk):
+        Thread.__init__(self)
+        self.ip = ip
         self.port = port
         self.socket = client_sk
 
         self.usuario = None
 
-        print ("[+] New server socket thread started for " + ip + ":" + str(port)) 
- 
-    def run(self): 
+        print("[+] New server socket thread started for " + ip + ":" + str(port))
+
+    def run(self):
         exit_sucesso = False
         with self.socket:
-            while True: 
+            while True:
                 data = self.socket.recv(1024)
-                print("data => ", data) 
+                print("data => ", data)
                 if not data:
                     break
                 entrada = [item.decode("utf-8") for item in data.split()]
 
-                if(entrada[0] == "adduser"):
+                if entrada[0] == "adduser":
                     self.adduser(entrada[1], entrada[2])
 
-                if(entrada[0] == "passwd"):
+                elif entrada[0] == "passwd":
                     self.passwd(entrada[1], entrada[2])
 
-                if(entrada[0] == "login"):
-                    self.login()
-
-                if(entrada[0] == "leaders"):
+                elif entrada[0] == "login":
                     self.login(entrada[1], entrada[2])
 
-                if(entrada[0] == "begin"):
+                elif entrada[0] == "leaders":
                     self.login(entrada[1], entrada[2])
 
-                if(entrada[0] == "delay"):
+                elif entrada[0] == "begin":
                     self.login(entrada[1], entrada[2])
 
-                if(entrada[0] == "end"):
+                elif entrada[0] == "delay":
                     self.login(entrada[1], entrada[2])
 
-                if(entrada[0] == "logout"):
+                elif entrada[0] == "end":
                     self.login(entrada[1], entrada[2])
 
-                if(entrada[0] == "exit"):
+                elif entrada[0] == "logout":
+                    self.login(entrada[1], entrada[2])
+
+                elif entrada[0] == "exit":
                     exit_sucesso = True
                     self.login(entrada[1], entrada[2])
 
                 self.socket.sendall(data)
-        if (exit_sucesso == False):
+        if not exit_sucesso:
             self.conexao_perdida()
         sys.exit()
-    
+
     def adduser(self, name, passwd):
         global usuarios
         usuarios.append({"nome": name, "passwd": passwd})
@@ -73,31 +76,32 @@ class ClientThread(Thread):
             print("Lista de usuários: \t", usuarios, "\n")
         pass
 
-    def passwd(self):
-        print("login")
+    def passwd(self, old_passwd, new_passwd):
+        print("passwd")
         pass
 
-    def login(self):
+    def login(self, name, passwd):
         print("Entrou login")
         # Realiza o wrap no socket e retorna um socket SSL
-        socket_ssl = ssl.wrap_socket(self.socket, server_side=True, keyfile="cert/MyKey.key", certfile="cert/MyCertificate.crt")
+        socket_ssl = ssl.wrap_socket(self.socket, server_side=True, keyfile="cert/MyKey.key",
+                                     certfile="cert/MyCertificate.crt")
         # Recebe as credenciais de forma segura
         credentials = socket_ssl.recv(1024)
         # Realiza o unwrap e retorna um socket comum
         self.socket = socket_ssl.unwrap()
         return True
-        
-    def leaders():
+
+    def leaders(self):
         pass
 
-    def begin():
+    def begin(self):
         pass
 
-    def delay():
+    def delay(self):
         print("logout")
         pass
 
-    def end():
+    def end(self):
         print("logout")
         pass
 
@@ -113,30 +117,42 @@ class ClientThread(Thread):
         print("Conexão perdida:", self.ip, self.port)
         return
 
+
+def daemon_process():
+    while True:
+        print("Hello")
+        sleep(2)
+
+
 def main():
-    tcpServer = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
-    tcpServer.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) 
-    tcpServer.bind((TCP_IP, TCP_PORT))
-    threads = [] 
+    tcp_server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp_server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    tcp_server.bind((TCP_IP, TCP_PORT))
+
+    daemon = Thread(name='daemon_thread', target=daemon_process, daemon=True)
+    daemon.start()
+
+    threads = []
+
     global usuarios
-    
 
     # Abre / Cria o arquivo contendo os usuários e senhas 
     with open("usuarios.json") as file_usuarios:
         usuarios = json.load(file_usuarios)
-        file_usuarios.close()
 
-    while True: 
-        tcpServer.listen(4) 
-        print ("Multithreaded Python server : Waiting for connections from TCP clients...")
-        (client_sk, (ip,port)) = tcpServer.accept() 
-        newthread = ClientThread(ip,port,client_sk) 
-        newthread.start() 
-        threads.append(newthread) 
+    while True:
+        tcp_server.listen(4)
+        print("Multithreaded Python server : Waiting for connections from TCP clients...")
+        (client_sk, (ip, port)) = tcp_server.accept()
+        newthread = ClientThread(ip, port, client_sk)
+        newthread.start()
+        threads.append(newthread)
 
-    for t in threads: 
-        t.join()
-    
+    # for t in threads:
+    #     t.join()
+
     return 0
 
-main() 
+
+if __name__ == '__main__':
+    main()

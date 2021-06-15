@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import json
 import socket
 import ssl
@@ -8,12 +9,8 @@ from time import sleep
 import sqlite3
 from sqlite3 import Error
 
-# Multithreaded Python server : TCP Server Socket Program Stub
-TCP_IP = '127.0.0.1'
-TCP_PORT = 4000
-TCP_PORT_SSL = 4001
-BUFFER_SIZE = 1024
 DEBUG = True
+
 class ClientProcess(Process):
 
     def __init__(self, ip, port, port_ssl, client_sk, client_sk_ssl):
@@ -52,52 +49,55 @@ class ClientProcess(Process):
         
         with sockt:
             while True:
-                data = None
                 try:
+                    data = None
                     data = sockt.recv(1024)
+
+                    if not data:
+                        break
+                    entrada = [item.decode("utf-8") for item in data.split()]
+                    if entrada[0] == "exit":
+                        sockt.close()
+                        break
+                    if entrada[0] == "adduser":
+                        ret = self.adduser(entrada[1], entrada[2], conn_db)
+                        sockt.sendall(bytes(ret, 'ascii'))
+
+                    elif entrada[0] == "passwd":
+                        ret = self.passwd(entrada[1], entrada[2], conn_db)
+                        sockt.sendall(bytes(ret, 'ascii'))
+
+                    elif entrada[0] == "login":
+                        ret = self.login(entrada[1], entrada[2], conn_db)
+                        sockt.sendall(bytes(ret, 'ascii'))
+
+                    elif entrada[0] == "logout":
+                        ret = self.logout(entrada[1], conn_db)
+                        sockt.sendall(bytes(ret, 'ascii'))
+
+                    elif entrada[0] == "list":
+                        ret = self.list(conn_db)
+                        sockt.sendall(bytes(ret, 'ascii'))
+
+                    elif entrada[0] == "leaders":
+                        self.login(entrada[1], entrada[2], conn_db)
+                        
+                    elif entrada[0] == "begin":
+                        ret = self.begin(entrada[1], entrada[2], conn_db)
+                        sockt.sendall(bytes(ret, 'ascii'))
+
+                    elif entrada[0] == "delay":
+                        self.login(entrada[1], entrada[2])
+
+                    elif entrada[0] == "end":
+                        self.login(entrada[1], entrada[2])
+
+                    elif entrada[0] == "exit":
+                        self.socket.close()
+                        print("Conexão do cliente ", self.ip, " terminada pelo cliente.")
+                        break
                 except:
-                    pass
-                if not data:
-                    break
-                entrada = [item.decode("utf-8") for item in data.split()]
-                if entrada[0] == "exit":
-                    sockt.close()
-                    break
-                if entrada[0] == "adduser":
-                    ret = self.adduser(entrada[1], entrada[2], conn_db)
-                    sockt.sendall(bytes(ret, 'ascii'))
-
-                elif entrada[0] == "passwd":
-                    ret = self.passwd(entrada[1], entrada[2], conn_db)
-                    sockt.sendall(bytes(ret, 'ascii'))
-
-                elif entrada[0] == "login":
-                    ret = self.login(entrada[1], entrada[2], conn_db)
-                    sockt.sendall(bytes(ret, 'ascii'))
-
-                elif entrada[0] == "list":
-                    self.list(conn_db)
-
-                elif entrada[0] == "leaders":
-                    self.login(entrada[1], entrada[2], conn_db)
-                    
-                elif entrada[0] == "begin":
-                    self.login(entrada[1], entrada[2])
-
-                elif entrada[0] == "delay":
-                    self.login(entrada[1], entrada[2])
-
-                elif entrada[0] == "end":
-                    self.login(entrada[1], entrada[2])
-
-                elif entrada[0] == "logout":
-                    self.login(entrada[1], entrada[2])
-
-                elif entrada[0] == "exit":
-                    self.socket.close()
-                    print("Conexão do cliente ", self.ip, " terminada pelo cliente.")
-                    break
-                sockt.sendall(bytes("sucesso", 'ascii'))
+                    continue
         sys.exit()
 
     def adduser(self, usuario, senha, conn_db):
@@ -158,7 +158,6 @@ class ClientProcess(Process):
             print("Não foi encontrado usuário com essas credenciais")
             return ('login ERRO_DE_CREDENCIAIS ' + usuario)
         user = result[0]
-        # if (user["status"] == "ativo"):
         if (user[2] == "ativo"):
             print("Esse usuário já possui uma sessão ativa.")
             return ('login SESSAO_EM_USO ' + usuario)
@@ -173,14 +172,69 @@ class ClientProcess(Process):
         cursor.close()
         return 'login SUCESSO ' + str(user[1])
 
-    def list(self):
-        pass
+    def logout(self, usuario, conn_db):
+        if usuario != self.usuario:
+            return 'logout ERRO'
+        cursor = conn_db.cursor()
+        try:
+            cursor.execute(f"""UPDATE usuario SET status = "inativo" WHERE nome = "{usuario}" """)
+        except Error as e:
+            print(e)
+            return 'logout ERRO'
+        self.usuario = None
+        conn_db.commit()
+        cursor.close()
+        return 'logout SUCESSO'
+
+    def list(self, conn_db):
+        cursor = conn_db.cursor()
+        try:
+            cursor.execute(f"""SELECT nome, status, em_partida_com FROM usuario""")
+            result = cursor.fetchall()
+        except Error as e:
+            print(e)
+            return ('list ERRO')
+
+        ret = result
+        cursor.close()
+        print(ret)
+        return 'list SUCESSO ' + str(json.dumps(ret).replace(" ", ""))
 
     def leaders(self):
         pass
 
-    def begin(self):
-        pass
+    def begin(self, usuario_a_convidar, porta_p2p, conn_db):
+        cursor = conn_db.cursor()
+        try:
+            cursor.execute(f"""SELECT nome, status, em_partida_com FROM usuario WHERE nome = "{usuario_a_convidar}" """)
+            result = cursor.fetchall()
+        except Error as e:
+            print(e)
+            return 'begin ERRO ' + str(usuario_a_convidar)
+
+        if len(result) == 0:
+            return 'begin USUARIO_NAO_ENCONTRADO ' + str(usuario_a_convidar)
+
+        user = result[0]
+        if (user[1] == "inativo"):
+            return 'begin USUARIO_NAO_ATIVO ' + str(usuario_a_convidar)
+
+        if (user[2] != "Ninguém"):
+            return 'begin USUARIO_EM_PARTIDA ' + str(usuario_a_convidar)
+
+        try:
+            cursor.execute(f"""
+                INSERT INTO convite (convidante, convidado, ip_convidante, porta_convidante)
+                VALUES ("{self.usuario}", "{usuario_a_convidar}", "{self.ip}", "{porta_p2p}")
+            """)
+        except Error as e:
+            print(e)
+            return 'begin ERRO ' + str(usuario_a_convidar)
+        
+        conn_db.commit()
+        cursor.close()
+        return 'begin SUCESSO ' + str(usuario_a_convidar)
+
 
     def delay(self):
         print("logout")
@@ -188,9 +242,6 @@ class ClientProcess(Process):
 
     def end(self):
         print("logout")
-        pass
-
-    def logout(self):
         pass
 
     def exit(self):
@@ -231,6 +282,10 @@ def inicia_bd(conn):
     conn.close()
 
 def main():
+    TCP_IP = '127.0.0.1'
+    TCP_PORT = int(sys.argv[1])
+    TCP_PORT_SSL = int(sys.argv[2])
+
     tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     tcp_sock.bind((TCP_IP, TCP_PORT))

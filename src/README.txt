@@ -1,0 +1,2 @@
+Dependências:
+    - sqlite3

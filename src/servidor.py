@@ -9,13 +9,14 @@ from time import sleep
 import sqlite3
 from sqlite3 import Error
 
-FREQ_HEARTBEAT = 10 # Frequência (em segundos) na qual pacotes heartbeat são enviados para um cliente
+FREQ_HEARTBEAT = 5 # Frequência (em segundos) na qual pacotes heartbeat são enviados para um cliente
 
 class ClientProcess(Process):
 
     def __init__(self, ip, port, port_ssl, client_sk, client_sk_ssl):
         Process.__init__(self)
         self.heartbeats_nao_respondidos = 0
+        self.finalizar_cliente = False
 
         self.ip = ip
 
@@ -30,7 +31,7 @@ class ClientProcess(Process):
 
         self.id_convite_enviado_bd = None
         self.convite_recebido = None
-        print("[+] New server socket thread started for " + ip + ":" + str(port))
+        print("[+] Novo cliente conectado no " + ip + ":" + str(port))
 
     def run(self):
 
@@ -42,20 +43,24 @@ class ClientProcess(Process):
         thread_recv_encrypted = Thread(daemon=True, target = self.recv_packets, args =(self.socket_ssl,))
         thread_recv_encrypted.start()
 
-        thread_recv = Thread(daemon=True, target = self.check_invitations, args =(self.socket,))
-        thread_recv.start()
+        thread_invitation = Thread(daemon=True, target = self.check_invitations, args =(self.socket,))
+        thread_invitation.start()
 
+        conn_db  = abre_conexao_db("database/database.db")
         while(True):
             sleep(FREQ_HEARTBEAT)
+            if self.finalizar_cliente:
+                break
             self.heartbeats_nao_respondidos += 1
             if self.heartbeats_nao_respondidos >= 3:
-                print("O cliente de IP ", self.ip, " encontra-se irresponsível e será finalizado.")
-                self.exit()
+                print("O cliente de IP ", self.ip, " encontra-se irresponsivo e será finalizado.")
+                self.exit(conn_db)
                 sys.exit()
             try:
                 self.socket.sendall(bytes('heartbeat', 'ascii'))
             except:
                 pass
+        sys.exit()
 
     def check_invitations(self, sockt):
         conn_db  = abre_conexao_db("database/database.db")
@@ -65,6 +70,7 @@ class ClientProcess(Process):
                 cursor.execute(f"""SELECT * FROM convite WHERE convidado = "{self.usuario}" AND status = "pendente" LIMIT 1""")
                 result = cursor.fetchall()
                 if len(result) > 0:
+                    print("convite recebido")
                     self.convite_recebido = result[0]
                     sockt.sendall(bytes('convite ' + self.convite_recebido[1],'ascii'))
             sleep(1)
@@ -81,13 +87,13 @@ class ClientProcess(Process):
                     if not data:
                         break
                     entrada = [item.decode("utf-8") for item in data.split()]
-                    if entrada[0] == "exit":
-                        sockt.close()
-                        break
-                    if entrada[0] == "adduser":
+                    if entrada[0] == "heartbeat":
+                        self.heartbeats_nao_respondidos = 0
+
+                    elif entrada[0] == "adduser":
                         ret = self.adduser(entrada[1], entrada[2], conn_db)
                         sockt.sendall(bytes(ret, 'ascii'))
-
+                        
                     elif entrada[0] == "passwd":
                         ret = self.passwd(entrada[1], entrada[2], conn_db)
                         sockt.sendall(bytes(ret, 'ascii'))
@@ -129,14 +135,11 @@ class ClientProcess(Process):
                     elif entrada[0] == "resultado":
                         ret = self.resultado(entrada[1], entrada[2], entrada[3], conn_db)
 
-                    elif entrada[0] == "delay":
-                        self.login(entrada[1], entrada[2])
-
                     elif entrada[0] == "end":
-                        self.login(entrada[1], entrada[2])
-
+                        self.end(conn_db)
                     elif entrada[0] == "exit":
-                        self.socket.close()
+                        self.finalizar_cliente = True
+                        self.exit(conn_db)
                         print("Conexão do cliente ", self.ip, " terminada pelo cliente.")
                         break
                 except:
@@ -300,7 +303,7 @@ class ClientProcess(Process):
         cursor = conn_db.cursor()
         try:
             cursor.execute(f"""UPDATE convite SET status = "cancelado" WHERE id_convite = {self.id_convite_enviado_bd} """)
-            self.id_convite_enviado_bd = False
+            self.id_convite_enviado_bd = None
         except Error as e:
             print(e)
 
@@ -344,13 +347,16 @@ class ClientProcess(Process):
         cursor.close()
         return
 
-    def delay(self):
-        print("logout")
-        pass
-
-    def end(self):
-        print("logout")
-        pass
+    def end(self, conn_db):
+        cursor = conn_db.cursor()
+        if self.id_convite_enviado_bd:
+            try:
+                cursor.execute(f"""UPDATE convite SET status = "Jogo Cancelado" WHERE id_convite = {self.id_convite_enviado_bd}""")
+            except Error as e:
+                print(e)
+        else:
+            return "O seu adversário forçou o encerramento antecipado da partida."
+        return True
 
     def exit(self, conn_db):
         if self.usuario:

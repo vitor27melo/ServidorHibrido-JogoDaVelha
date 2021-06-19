@@ -7,6 +7,9 @@ import ssl
 import os
 from time import sleep
 from queue import Queue
+import timeit
+
+FREQ_DELAY = 5 # Frequência (em segundos) na qual pacotes delay são enviados para o adversário
 
 CASA_VAZIA = 0 # A casa está vazia
 CONVIDANTE = 1 # O jogador é representado pela marcação X
@@ -14,6 +17,9 @@ CONVIDADO = 2    # O robô (jogador) é representado pela marcação O
 
 class Cliente():
     def __init__(self, host, port, port_ssl, port_p2p):
+        self.time_envio_delay = None
+        self.delay = []
+
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.connect((host, port))
 
@@ -52,23 +58,30 @@ class Cliente():
                 entrada = input("")
                 queue.put("limpar")
                 comando = entrada.split()
+
                 if entrada == "exit":
                     self.socket_ssl.sendall(bytes(entrada, 'ascii'))
                     self.socket.sendall(bytes(entrada, 'ascii'))
                     self.socket.close()
+                    self.socket_ssl.close()
+                    self.socket_p2p.close()
                     break
                 if comando:
                     # Comandos DURANTE uma partida
                     if comando[0] in ["send", "delay", "end"]:
-                        if not self.em_jogo:
+                        if comando[0] == "delay":
+                            queue.put(self.imprime_latencia())
+                        elif not self.em_jogo:
                             queue.put("Você precisa estar em jogo para executar esta ação!")
                         elif comando[0] == "send":
                             if not self.meu_turno:
                                 queue.put(self.imprime_tabuleiro("Espere seu adversário realizar sua jogada!"))
                             else:
                                 self.socket_p2p.sendall(bytes(entrada, 'ascii'))
-                        else:
+                        elif comando[0] == "end":
                             self.socket.sendall(bytes(entrada, 'ascii'))
+                            self.socket_p2p.sendall(bytes(entrada, 'ascii'))
+                            self.termina_partida()
                     # Comandos para o servidor em que é necessário estar logado
                     elif comando[0] in ["passwd", "logout", "begin"] and not self.usuario:
                         queue.put("Você precisa estar logado para executar esta ação!")
@@ -105,7 +118,17 @@ class Cliente():
         print_tabuleiro +='\n---------------------------------\n\n'
         return print_tabuleiro
 
- 
+    def imprime_latencia(self):
+        if len(self.delay) == 0:
+            return "Ainda não foram medidos valores de latência para seu adversário."
+        elif len(self.delay) == 1:
+            return "Últimos valores medidos: " + str(self.delay[-1]/1000)[0:5] + "ms"
+        elif len(self.delay) == 2:
+            return "Últimos valores medidos: " + str(self.delay[-1]/1000)[0:5] + "ms, " + str(self.delay[-2]/1000)[0:5] + "ms"
+        else:
+            return "Últimos valores medidos: " + str(self.delay[-1]/1000)[0:5] + "ms, " + str(self.delay[-2]/1000)[0:5] + "ms, " + str(self.delay[-3]/1000)[0:5] + "ms"
+
+
     def recv_packets(self, sockt, queue):
         while True:
             message = ""
@@ -120,11 +143,11 @@ class Cliente():
                     self.socket_p2p.sendall(bytes("confirm_send " + entrada[1] + " " + entrada[2], 'ascii'))
                     self.meu_turno = True
                     message = self.imprime_tabuleiro('É a sua vez de jogar.')
-            if (entrada[0] == "confirm_send"):
+            elif (entrada[0] == "confirm_send"):
                 if self.confirm_send(entrada[1], entrada[2]):
                     self.meu_turno = False
                     message = self.imprime_tabuleiro('É a vez do seu adversário jogar.')
-            if entrada[0] in ["send", "confirm_send"]:
+            elif entrada[0] in ["send", "confirm_send"]:
                 result_msg, result = self.verifica_vitoria()
                 if result_msg:
                     self.socket.sendall(bytes(result_msg, 'ascii'))
@@ -135,9 +158,18 @@ class Cliente():
                     if result == 'empate':
                         message = self.imprime_tabuleiro('O jogo terminou em empate!')
                     self.termina_partida()
-
+            elif entrada[0] == "delay_ret":
+                self.delay.append(self.time_envio_delay - timeit.timeit())
+            elif entrada[0] == "delay":
+                self.socket_p2p.sendall(bytes("delay_ret", 'ascii'))
+                continue
+            elif entrada[0] == "end":
+                message = "O seu adversário forçou o encerramento antecipado da partida."
+                self.termina_partida()
+                continue
             # COMANDOS VINDOS DO SERVIDOR
-            if (entrada[0] == "heartbeat"):
+            elif (entrada[0] == "heartbeat"):
+                self.socket.sendall(bytes("heartbeat", 'ascii'))
                 continue
             elif (entrada[0] == "login"):
                 message = self.login(entrada[1], entrada[2])
@@ -248,6 +280,8 @@ class Cliente():
         self.em_jogo = True
         thread_recv =  Thread(target = self.recv_packets, args=(self.socket_p2p, queue))
         thread_recv.start()
+        thread_delay = Thread(target = self.send_delay, args=())
+        thread_delay.start()
         return True
 
     def escuta_p2p(self, adversario, queue):
@@ -269,8 +303,19 @@ class Cliente():
         self.em_jogo = True
         thread_recv =  Thread(target = self.recv_packets, args=(self.socket_p2p, queue))
         thread_recv.start()
+        thread_delay = Thread(target = self.send_delay, args=())
+        thread_delay.start()
         return True
     
+    def send_delay(self):
+        while(True):
+            try:
+                self.time_envio_delay = timeit.timeit()
+                self.socket_p2p.sendall(bytes('delay', 'ascii'))
+            except:
+                pass
+            sleep(FREQ_DELAY)
+
     def send(self, linha, coluna):
         # Jogada do adversário
         if (self.tabuleiro[int(linha)][int(coluna)] != CASA_VAZIA):
@@ -346,7 +391,7 @@ class Cliente():
         self.socket_p2p = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 def main():
-    HOST = int(sys.argv[1])  # The server's hostname or IP address
+    HOST = sys.argv[1]  # The server's hostname or IP address
     PORT = int(sys.argv[2])
     PORT_SSL = int(sys.argv[3])
     PORT_P2P = int(sys.argv[4])

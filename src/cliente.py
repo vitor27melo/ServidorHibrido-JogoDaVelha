@@ -11,6 +11,7 @@ from queue import Queue
 CASA_VAZIA = 0 # A casa está vazia
 CONVIDANTE = 1 # O jogador é representado pela marcação X
 CONVIDADO = 2    # O robô (jogador) é representado pela marcação O
+
 class Cliente():
     def __init__(self, host, port, port_ssl, port_p2p):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -345,7 +346,7 @@ class Cliente():
         self.socket_p2p = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 def main():
-    HOST = int(sys.argv[1])  # The server's hostname or IP address
+    HOST = sys.argv[1]  # The server's hostname or IP address
     PORT = int(sys.argv[2])
     PORT_SSL = int(sys.argv[3])
     PORT_P2P = int(sys.argv[4])

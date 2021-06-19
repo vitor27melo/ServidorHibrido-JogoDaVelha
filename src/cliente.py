@@ -34,6 +34,7 @@ class Cliente():
 
         self.usuario = None
         self.id_convite_enviado = '0'
+        self.ip_adversario = ''
 
         self.tabuleiro = [[CASA_VAZIA for x in range(3)] for y in range(3)]
         self.minha_peca = None # CONVIDADO OU CONVIDANTE
@@ -269,6 +270,7 @@ class Cliente():
 
     def conecta_p2p(self, adversario, ip, porta, queue):
         queue.put("Conenctando: " + ip + porta)
+        self.ip_adversario = ip
         try:
             self.socket_p2p.connect((ip, int(porta)))
         except:
@@ -291,6 +293,7 @@ class Cliente():
         self.socket_p2p.listen(4)
         try:
             (client_sk, (ip, port)) = self.socket_p2p.accept()
+            self.ip_adversario = ip
             self.socket_p2p.close()
             self.socket_p2p = client_sk
         except socket.timeout:
@@ -345,9 +348,9 @@ class Cliente():
                     casas_marcadas_H += 1
             if casas_marcadas_H == 3 or casas_marcadas_V == 3:
                 if self.minha_peca == CONVIDANTE:
-                    return 'resultado ' + self.id_convite_enviado + ' ' + self.usuario + ' ' + self.adversario_atual, 'vitoria'
+                    return 'resultado ' + self.id_convite_enviado + ' ' + self.usuario + ' ' + self.ip_p2p + ' ' + self.adversario_atual + ' ' + self.ip_adversario, 'vitoria'
                 else:
-                    return 'resultado ' + self.id_convite_enviado + ' ' + self.adversario_atual + ' ' + self.usuario, 'derrota'
+                    return 'resultado ' + self.id_convite_enviado + ' ' + self.adversario_atual + ' ' + self.ip_adversario + ' ' + self.usuario + ' ' + self.ip_p2p, 'derrota'
             if self.tabuleiro[i][i] == CONVIDANTE:
                 casas_marcadas_D += 1
             if self.tabuleiro[i][2-i] == CONVIDANTE:
@@ -381,6 +384,7 @@ class Cliente():
 
     def termina_partida(self):
         self.socket_p2p.close()
+        self.ip_adversario = ''
         self.id_convite_enviado = '0'
         self.tabuleiro = [[CASA_VAZIA for x in range(3)] for y in range(3)]
         self.minha_peca = None 

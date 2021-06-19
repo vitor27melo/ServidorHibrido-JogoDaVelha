@@ -8,8 +8,17 @@ from multiprocessing import Process
 from time import sleep
 import sqlite3
 from sqlite3 import Error
+from datetime import datetime
 
 FREQ_HEARTBEAT = 5 # Frequência (em segundos) na qual pacotes heartbeat são enviados para um cliente
+
+def log(msg):
+    try:
+        file = open("log.txt", "a+")
+        file.write(datetime.now().strftime("%d/%m/%Y@%H:%M:%S") + " => " + msg + "\n")
+        file.close()
+    except:
+        log(msg)
 
 class ClientProcess(Process):
 
@@ -31,7 +40,7 @@ class ClientProcess(Process):
 
         self.id_convite_enviado_bd = None
         self.convite_recebido = None
-        print("[+] Novo cliente conectado no " + ip + ":" + str(port))
+        log(f"""Novo cliente conectado pelo IP {ip}: {str(port)} e {str(port_ssl)}""")
 
     def run(self):
 
@@ -133,10 +142,11 @@ class ClientProcess(Process):
                         ret = self.jogo_iniciado(entrada[1], entrada[2], entrada[3], conn_db)
 
                     elif entrada[0] == "resultado":
-                        ret = self.resultado(entrada[1], entrada[2], entrada[3], conn_db)
+                        ret = self.resultado(entrada[1], entrada[2], entrada[3], entrada[4], entrada[5], conn_db)
 
                     elif entrada[0] == "end":
                         self.end(conn_db)
+
                     elif entrada[0] == "exit":
                         self.finalizar_cliente = True
                         self.exit(conn_db)
@@ -198,13 +208,12 @@ class ClientProcess(Process):
             result = cursor.fetchall()
         except Error as e:
             print(e)
-
         if len(result) == 0:
-            print("Não foi encontrado usuário com essas credenciais")
+            log(f"""Cliente de IP {self.ip}  tentou realizar o login com usuário ({usuario}), mas as credenciais estavam incorretas""")
             return ('login ERRO_DE_CREDENCIAIS ' + usuario)
         user = result[0]
         if (user[2] == "ativo"):
-            print("Esse usuário já possui uma sessão ativa.")
+            log(f"""Cliente de IP {self.ip} tentou realizar o login com usuário ({usuario}), mas já havia uma sessão ativa""")
             return ('login SESSAO_EM_USO ' + usuario)
         else:
             try:
@@ -215,6 +224,7 @@ class ClientProcess(Process):
         
         conn_db.commit()
         cursor.close()
+        log(f"""Cliente de IP {self.ip} realizou o login com usuário ({usuario}) com sucesso.""")
         return 'login SUCESSO ' + str(user[1])
 
     def logout(self, usuario, conn_db):
@@ -312,6 +322,7 @@ class ClientProcess(Process):
         return
 
     def jogo_iniciado(self, convidante, convidado, id_convite, conn_db):
+
         cursor = conn_db.cursor()
         try:
             cursor.execute(f"""UPDATE convite SET status = "jogo_iniciado" WHERE id_convite = {id_convite} """)
@@ -319,12 +330,12 @@ class ClientProcess(Process):
             cursor.execute(f"""UPDATE usuario SET em_partida_com = "{convidado}" WHERE nome = "{convidante}" """)
         except Error as e:
             print(e)
-
         conn_db.commit()
         cursor.close()
+        log(f"""Partida iniciada entre os jogadores {convidado} e {convidante}""")
         return
     
-    def resultado(self, id_convite, vitorioso, derrotado, conn_db):
+    def resultado(self, id_convite, vitorioso, derrotado, ip_vitorioso, ip_derrotado, conn_db):
         cursor = conn_db.cursor()
         try: 
             cursor.execute(f"""SELECT status FROM convite WHERE id_convite = {id_convite} """)
@@ -334,7 +345,9 @@ class ClientProcess(Process):
                 cursor.execute(f"""UPDATE usuario SET em_partida_com = "Ninguém" WHERE nome = "{vitorioso}" OR nome = "{derrotado}" """)
                 if (vitorioso == "empate"):
                     cursor.execute(f"""UPDATE usuario SET empates = empates + 1 WHERE nome = "{vitorioso}" OR nome = "{derrotado}" """)
+                    log(f"""Partida finalizada. O jogador {vitorioso} (IP {ip_vitorioso}) empatou com o jogador {derrotado} (IP {ip_derrotado})""")
                 else:
+                    log(f"""Partida finalizada. O jogador {vitorioso} (IP {ip_vitorioso}) venceu o jogador {derrotado} (IP {ip_derrotado})""")
                     cursor.execute(f"""UPDATE usuario SET vitorias = vitorias + 1 WHERE nome = "{vitorioso}" """)
                     cursor.execute(f"""UPDATE usuario SET derrotas = derrotas + 1 WHERE nome = "{derrotado}" """)
                 self.em_partida = False
@@ -342,7 +355,6 @@ class ClientProcess(Process):
                 self.convite_recebido = None
         except Error as e:
             print(e)
-
         conn_db.commit()
         cursor.close()
         return
@@ -410,6 +422,8 @@ def inicia_bd(conn):
     conn.close()
 
 def main():
+    log("Servidor iniciado.")
+
     TCP_IP = '0.0.0.0'
 
     try:

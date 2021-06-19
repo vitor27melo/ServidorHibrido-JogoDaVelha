@@ -20,7 +20,9 @@
     <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
     <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
     <property name="WebServerToolWindowFactoryState" value="false" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$/../../../../../Athon/Core Backend Powerrev" />
   </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
       <changelist id="386df28b-d059-4a26-a737-5d65c37a1043" name="Default Changelist" comment="" />
@@ -29,7 +31,11 @@
       <option name="presentableId" value="Default" />
       <updated>1623607462413</updated>
       <workItem from="1623607462795" duration="3000" />
+      <workItem from="1623693293939" duration="650000" />
     </task>
     <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
   </component>
 </project>

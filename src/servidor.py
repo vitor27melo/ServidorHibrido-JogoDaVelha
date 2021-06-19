@@ -24,25 +24,43 @@ class ClientProcess(Process):
         self.socket_ssl = client_sk_ssl
 
         self.usuario = None
+        self.em_partida = False
+
+        self.id_convite_enviado_bd = None
+        self.convite_recebido = None
         print("[+] New server socket thread started for " + ip + ":" + str(port))
 
     def run(self):
 
-        thread_recv =  Thread(daemon=True, target = self.recv_packets, args =(self.socket,))
+        thread_recv = Thread(daemon=True, target = self.recv_packets, args =(self.socket,))
         thread_recv.start()
 
         self.socket_ssl = ssl.wrap_socket(self.socket_ssl, server_side=True, keyfile="cert/MyKey.key",
                                      certfile="cert/MyCertificate.crt", ssl_version=ssl.PROTOCOL_TLS)
-        thread_recv_encrypted =  Thread(daemon=True, target = self.recv_packets, args =(self.socket_ssl,))
+        thread_recv_encrypted = Thread(daemon=True, target = self.recv_packets, args =(self.socket_ssl,))
         thread_recv_encrypted.start()
 
-        
+        thread_recv = Thread(daemon=True, target = self.check_invitations, args =(self.socket,))
+        thread_recv.start()
+
         while(True):
             sleep(15)
             try:
                 self.socket.sendall(bytes('heartbeat', 'ascii'))
             except:
                 pass
+
+    def check_invitations(self, sockt):
+        conn_db  = abre_conexao_db("database/database.db")
+        cursor = conn_db.cursor()
+        while(True):
+            if self.usuario and not self.id_convite_enviado_bd and not self.convite_recebido:
+                cursor.execute(f"""SELECT * FROM convite WHERE convidado = "{self.usuario}" AND status = "pendente" LIMIT 1""")
+                result = cursor.fetchall()
+                if len(result) > 0:
+                    self.convite_recebido = result[0]
+                    sockt.sendall(bytes('convite ' + self.convite_recebido[1],'ascii'))
+            sleep(1)
 
     def recv_packets(self, sockt):
         conn_db  = abre_conexao_db("database/database.db")
@@ -80,11 +98,29 @@ class ClientProcess(Process):
                         sockt.sendall(bytes(ret, 'ascii'))
 
                     elif entrada[0] == "leaders":
-                        self.login(entrada[1], entrada[2], conn_db)
+                        ret = self.leaders(conn_db)
+                        sockt.sendall(bytes(ret, 'ascii'))
                         
                     elif entrada[0] == "begin":
                         ret = self.begin(entrada[1], entrada[2], conn_db)
                         sockt.sendall(bytes(ret, 'ascii'))
+
+                    elif entrada[0] == "S": # Aceitando convite
+                        ret = self.aceita_convite(conn_db)
+                        sockt.sendall(bytes(ret, 'ascii'))
+
+                    elif entrada[0] == "N": 
+                        ret = self.recusa_convite(conn_db)
+                        sockt.sendall(bytes(ret, 'ascii'))
+
+                    elif entrada[0] == "cancela_convite":
+                        ret = self.cancela_convite(conn_db)
+
+                    elif entrada[0] == "jogo_iniciado":
+                        ret = self.jogo_iniciado(entrada[1], entrada[2], entrada[3], conn_db)
+
+                    elif entrada[0] == "resultado":
+                        ret = self.resultado(entrada[1], entrada[2], entrada[3], conn_db)
 
                     elif entrada[0] == "delay":
                         self.login(entrada[1], entrada[2])
@@ -134,7 +170,6 @@ class ClientProcess(Process):
 
         if len(result) == 0:
             return 'passwd SENHA_INCORRETA'
-        print("resultado", result)
         try:
             cursor.execute(f"""UPDATE usuario SET senha = "{new_passwd}" WHERE id_usuario = {result[0][0]}""")
         except Error as e:
@@ -195,13 +230,20 @@ class ClientProcess(Process):
             print(e)
             return ('list ERRO')
 
-        ret = result
         cursor.close()
-        print(ret)
-        return 'list SUCESSO ' + str(json.dumps(ret).replace(" ", ""))
+        return 'list SUCESSO ' + str(json.dumps(result).replace(" ", ""))
 
-    def leaders(self):
-        pass
+    def leaders(self, conn_db):
+        cursor = conn_db.cursor()
+        try:
+            cursor.execute(f"""SELECT nome, vitorias, derrotas, empates FROM usuario ORDER BY vitorias DESC""")
+            result = cursor.fetchall()
+        except Error as e:
+            print(e)
+            return ('leaders ERRO')
+
+        cursor.close()
+        return 'leaders SUCESSO ' + str(json.dumps(result).replace(" ", ""))
 
     def begin(self, usuario_a_convidar, porta_p2p, conn_db):
         cursor = conn_db.cursor()
@@ -210,31 +252,90 @@ class ClientProcess(Process):
             result = cursor.fetchall()
         except Error as e:
             print(e)
-            return 'begin ERRO ' + str(usuario_a_convidar)
+            return 'begin ERRO ' + str(usuario_a_convidar)  + ' 0'
 
         if len(result) == 0:
-            return 'begin USUARIO_NAO_ENCONTRADO ' + str(usuario_a_convidar)
+            return 'begin USUARIO_NAO_ENCONTRADO ' + str(usuario_a_convidar) + ' 0'
 
         user = result[0]
-        if (user[1] == "inativo"):
-            return 'begin USUARIO_NAO_ATIVO ' + str(usuario_a_convidar)
+        if user[1] == "inativo":
+            return 'begin USUARIO_NAO_ATIVO ' + str(usuario_a_convidar) + ' 0'
 
-        if (user[2] != "Ninguém"):
-            return 'begin USUARIO_EM_PARTIDA ' + str(usuario_a_convidar)
+        if user[2] != "Ninguém":
+            return 'begin USUARIO_EM_PARTIDA ' + str(usuario_a_convidar) + ' 0'
 
         try:
             cursor.execute(f"""
                 INSERT INTO convite (convidante, convidado, ip_convidante, porta_convidante)
                 VALUES ("{self.usuario}", "{usuario_a_convidar}", "{self.ip}", "{porta_p2p}")
             """)
+            self.id_convite_enviado_bd = cursor.lastrowid
         except Error as e:
             print(e)
-            return 'begin ERRO ' + str(usuario_a_convidar)
+            return 'begin ERRO ' + str(usuario_a_convidar)  + ' 0'
         
         conn_db.commit()
         cursor.close()
-        return 'begin SUCESSO ' + str(usuario_a_convidar)
+        return 'begin SUCESSO ' + str(usuario_a_convidar) + ' ' + str(self.id_convite_enviado_bd)
 
+    def aceita_convite(self, conn_db):
+        cursor = conn_db.cursor()
+        try:
+            cursor.execute(f"""UPDATE convite SET status = "aceito" WHERE id_convite = "{self.convite_recebido[0]}" """)
+        except Error as e:
+            print(e)
+            return 'inicia_jogo ERRO '
+        conn_db.commit()
+        cursor.close()
+        return 'inicia_jogo ' + self.convite_recebido[1] + ' ' + self.convite_recebido[3] + ' ' + self.convite_recebido[4]
+
+    def cancela_convite(self, conn_db):
+        cursor = conn_db.cursor()
+        try:
+            cursor.execute(f"""UPDATE convite SET status = "cancelado" WHERE id_convite = {self.id_convite_enviado_bd} """)
+            self.id_convite_enviado_bd = False
+        except Error as e:
+            print(e)
+
+        conn_db.commit()
+        cursor.close()
+        return
+
+    def jogo_iniciado(self, convidante, convidado, id_convite, conn_db):
+        cursor = conn_db.cursor()
+        try:
+            cursor.execute(f"""UPDATE convite SET status = "jogo_iniciado" WHERE id_convite = {id_convite} """)
+            cursor.execute(f"""UPDATE usuario SET em_partida_com = "{convidante}" WHERE nome = "{convidado}" """)
+            cursor.execute(f"""UPDATE usuario SET em_partida_com = "{convidado}" WHERE nome = "{convidante}" """)
+        except Error as e:
+            print(e)
+
+        conn_db.commit()
+        cursor.close()
+        return
+    
+    def resultado(self, id_convite, vitorioso, derrotado, conn_db):
+        cursor = conn_db.cursor()
+        try: 
+            cursor.execute(f"""SELECT status FROM convite WHERE id_convite = {id_convite} """)
+            retorno = cursor.fetchall()[0]
+            if retorno[0] == 'jogo_iniciado':
+                cursor.execute(f"""UPDATE convite SET status = "finalizado" WHERE id_convite = {id_convite} """)
+                cursor.execute(f"""UPDATE usuario SET em_partida_com = "Ninguém" WHERE nome = "{vitorioso}" OR nome = "{derrotado}" """)
+                if (vitorioso == "empate"):
+                    cursor.execute(f"""UPDATE usuario SET empates = empates + 1 WHERE nome = "{vitorioso}" OR nome = "{derrotado}" """)
+                else:
+                    cursor.execute(f"""UPDATE usuario SET vitorias = vitorias + 1 WHERE nome = "{vitorioso}" """)
+                    cursor.execute(f"""UPDATE usuario SET derrotas = derrotas + 1 WHERE nome = "{derrotado}" """)
+                self.em_partida = False
+                self.id_convite_enviado_bd = None
+                self.convite_recebido = None
+        except Error as e:
+            print(e)
+
+        conn_db.commit()
+        cursor.close()
+        return
 
     def delay(self):
         print("logout")

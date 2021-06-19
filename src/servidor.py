@@ -9,12 +9,14 @@ from time import sleep
 import sqlite3
 from sqlite3 import Error
 
-DEBUG = True
+FREQ_HEARTBEAT = 10 # Frequência (em segundos) na qual pacotes heartbeat são enviados para um cliente
 
 class ClientProcess(Process):
 
     def __init__(self, ip, port, port_ssl, client_sk, client_sk_ssl):
         Process.__init__(self)
+        self.heartbeats_nao_respondidos = 0
+
         self.ip = ip
 
         self.port = port
@@ -35,8 +37,8 @@ class ClientProcess(Process):
         thread_recv = Thread(daemon=True, target = self.recv_packets, args =(self.socket,))
         thread_recv.start()
 
-        self.socket_ssl = ssl.wrap_socket(self.socket_ssl, server_side=True, keyfile="cert/MyKey.key",
-                                     certfile="cert/MyCertificate.crt", ssl_version=ssl.PROTOCOL_TLS)
+        self.socket_ssl = ssl.wrap_socket(self.socket_ssl, server_side=True, keyfile="certificates/MyKey.key",
+                                     certfile="certificates/MyCertificate.crt", ssl_version=ssl.PROTOCOL_TLS)
         thread_recv_encrypted = Thread(daemon=True, target = self.recv_packets, args =(self.socket_ssl,))
         thread_recv_encrypted.start()
 
@@ -44,7 +46,12 @@ class ClientProcess(Process):
         thread_recv.start()
 
         while(True):
-            sleep(15)
+            sleep(FREQ_HEARTBEAT)
+            self.heartbeats_nao_respondidos += 1
+            if self.heartbeats_nao_respondidos >= 3:
+                print("O cliente de IP ", self.ip, " encontra-se irresponsível e será finalizado.")
+                self.exit()
+                sys.exit()
             try:
                 self.socket.sendall(bytes('heartbeat', 'ascii'))
             except:
@@ -212,7 +219,7 @@ class ClientProcess(Process):
             return 'logout ERRO'
         cursor = conn_db.cursor()
         try:
-            cursor.execute(f"""UPDATE usuario SET status = "inativo" WHERE nome = "{usuario}" """)
+            cursor.execute(f"""UPDATE usuario SET status = "inativo", em_partida_com = "Ninguém" WHERE nome = "{usuario}" """)
         except Error as e:
             print(e)
             return 'logout ERRO'
@@ -345,12 +352,13 @@ class ClientProcess(Process):
         print("logout")
         pass
 
-    def exit(self):
-        # Atualiza status
-        pass
-
-    def conexao_perdida(self):
-        print("Conexão perdida:", self.ip, self.port)
+    def exit(self, conn_db):
+        if self.usuario:
+            cursor = conn_db.cursor()
+            cursor.execute(f"""UPDATE usuario SET status = "inativo", em_partida_com = "Ninguém" WHERE nome = "{self.usuario}" """)
+            conn_db.commit()
+            cursor.close()
+        print("Conexão com cliente de IP = " + self.ip + " encerrada.")
         return
 
 def abre_conexao_db(path):
@@ -365,50 +373,85 @@ def abre_conexao_db(path):
 def inicia_bd(conn):
     cursor = conn.cursor()
 
-    sql_create_projects_table = f"""
+    table_usuario = f"""
         CREATE TABLE IF NOT EXISTS usuario (
             id_usuario INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome varchar(50) NOT NULL,
+            nome varchar(50) UNIQUE NOT NULL,
             senha varchar(50) NOT NULL,
-            status varchar(10) NOT NULL DEFAULT "inativo"
+            status varchar(10) NOT NULL DEFAULT "inativo",
+            em_partida_com varchar(50) DEFAULT "Ninguém",
+            vitorias INTEGER DEFAULT 0,
+            derrotas INTEGER DEFAULT 0,
+            empates INTEGER DEFAULT 0
         );
     """
-    try:
-        cursor.execute(sql_create_projects_table)
-    except Error as e:
-        print(e)
 
+    table_convite = f"""
+        CREATE TABLE IF NOT EXISTS convite (
+            id_convite INTEGER PRIMARY KEY AUTOINCREMENT,
+            convidante varchar(50)  NOT NULL,
+            convidado varchar(50) NOT NULL,
+            ip_convidante varchar(50) NOT NULL,
+            porta_convidante varchar(50) NOT NULL,
+            dt_convite datetime DEFAULT current_timestamp,
+            status varchar(10) NOT NULL DEFAULT "pendente"
+        );
+    """
+    cursor.execute(table_usuario)
+    cursor.execute(table_convite)
     cursor.close()
     conn.commit()
     conn.close()
 
 def main():
     TCP_IP = '0.0.0.0'
-    TCP_PORT = int(sys.argv[1])
-    TCP_PORT_SSL = int(sys.argv[2])
 
-    tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    tcp_sock.bind((TCP_IP, TCP_PORT))
+    try:
+        TCP_PORT = int(sys.argv[1])
+        TCP_PORT_SSL = int(sys.argv[2])
+    except Exception as e:
+        print("Passe como parâmetros uma porta para conexões por texto simples e uma para conexões seguras.")
+        print("Exemplo: python servidor.py 5000 5001")
+        sys.exit()
 
-    tcp_sock_ssl = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    tcp_sock_ssl.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    tcp_sock_ssl.bind((TCP_IP, TCP_PORT_SSL))
+    try:
+        tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tcp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        tcp_sock.bind((TCP_IP, TCP_PORT))
+    except Exception as e:
+        print("Erro ao iniciar socket de conexões com os clientes: ", e)
+        sys.exit()
 
-    conn_db  = abre_conexao_db("database/database.db")
-    inicia_bd(conn_db)
+    try:
+        tcp_sock_ssl = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        tcp_sock_ssl.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        tcp_sock_ssl.bind((TCP_IP, TCP_PORT_SSL))
+    except Exception as e:
+        print("Erro ao iniciar socket de conexões seguras com os clientes: ", e)
+        sys.exit()
+
+    try:
+        conn_db  = abre_conexao_db("database/database.db")
+        inicia_bd(conn_db)
+    except Error as e:
+        print("Não foi possível iniciar a base de dados:", e)
+        sys.exit()
 
     while True:
         tcp_sock.listen(4)
         tcp_sock_ssl.listen()
-        print("Multithreaded Python server : Waiting for connections from TCP clients...")
-        (client_sk, (ip, port)) = tcp_sock.accept()
-        (client_sk_ssl, (ip_ssl, port_ssl)) = tcp_sock_ssl.accept()
-        newtProcess = ClientProcess(ip, port, port_ssl, client_sk, client_sk_ssl)
-        newtProcess.start()
-
-    return 0
-
+        print("Esperando por conexões de clientes da rede local nas portas " + str(TCP_PORT) + " e " + str(TCP_PORT_SSL) + "...")
+        try:
+            (client_sk, (ip, port)) = tcp_sock.accept()
+            (client_sk_ssl, (ip_ssl, port_ssl)) = tcp_sock_ssl.accept()
+        except Exception as e:
+            print("Erro ao iniciar conexões com um cliente: ", e)
+        
+        try:
+            newtProcess = ClientProcess(ip, port, port_ssl, client_sk, client_sk_ssl)
+            newtProcess.start()
+        except Exception as e:
+            print("Erro ao iniciar a thread do cliente de endereço IP ", ip, ": ", e)
 
 if __name__ == '__main__':
     main()

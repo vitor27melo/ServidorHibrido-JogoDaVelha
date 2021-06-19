@@ -346,7 +346,7 @@ class Cliente():
         self.socket_p2p = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 def main():
-    HOST = sys.argv[1]  # The server's hostname or IP address
+    HOST = int(sys.argv[1])  # The server's hostname or IP address
     PORT = int(sys.argv[2])
     PORT_SSL = int(sys.argv[3])
     PORT_P2P = int(sys.argv[4])

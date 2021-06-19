@@ -8,23 +8,22 @@ import os
 from time import sleep
 from queue import Queue
 
-
-HOST = '127.0.0.1'  # The server's hostname or IP address
-
 CASA_VAZIA = 0 # A casa está vazia
 CONVIDANTE = 1 # O jogador é representado pela marcação X
 CONVIDADO = 2    # O robô (jogador) é representado pela marcação O
 class Cliente():
-    def __init__(self, port, port_ssl, port_p2p):
+    def __init__(self, host, port, port_ssl, port_p2p):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket.connect((HOST, port))
+        self.socket.connect((host, port))
 
         self.socket_ssl = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.socket_ssl.connect((HOST, port_ssl))
+        self.socket_ssl.connect((host, port_ssl))
         self.socket_ssl = ssl.wrap_socket(self.socket_ssl, ssl_version=ssl.PROTOCOL_TLS)
 
         self.port_p2p = port_p2p
         self.socket_p2p = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        self.ip_p2p = socket.gethostbyname(socket.gethostname())  
 
         self.usuario = None
         self.id_convite_enviado = '0'
@@ -77,7 +76,7 @@ class Cliente():
                     elif comando[0] in ["login", "adduser", "passwd"]:
                         self.socket_ssl.sendall(bytes(entrada, 'ascii'))
                     else:
-                        self.socket.sendall(bytes(entrada + ' ' + str(self.port_p2p) if comando[0] == "begin" else entrada, 'ascii'))
+                        self.socket.sendall(bytes(entrada + ' ' + str(self.ip_p2p) + ' ' + str(self.port_p2p) if comando[0] == "begin" else entrada, 'ascii'))
 
     def imprime(self, queue):
         mensagem = ""
@@ -253,7 +252,7 @@ class Cliente():
     def escuta_p2p(self, adversario, queue):
         self.socket_p2p.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket_p2p.settimeout(30)
-        self.socket_p2p.bind((HOST, self.port_p2p))
+        self.socket_p2p.bind(('0.0.0.0', self.port_p2p))
         self.socket_p2p.listen(4)
         try:
             (client_sk, (ip, port)) = self.socket_p2p.accept()
@@ -346,10 +345,11 @@ class Cliente():
         self.socket_p2p = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 def main():
-    PORT = int(sys.argv[1])
-    PORT_SSL = int(sys.argv[2])
-    PORT_P2P = int(sys.argv[3])
-    cliente = Cliente(PORT, PORT_SSL, PORT_P2P)
+    HOST = int(sys.argv[1])  # The server's hostname or IP address
+    PORT = int(sys.argv[2])
+    PORT_SSL = int(sys.argv[3])
+    PORT_P2P = int(sys.argv[4])
+    cliente = Cliente(HOST, PORT, PORT_SSL, PORT_P2P)
     cliente.run()    
             
             

@@ -1,1 +1,0 @@
-- Fazer a conexão P2P ser verificada por meio do id_convite

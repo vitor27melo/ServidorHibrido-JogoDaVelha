@@ -102,7 +102,7 @@ class ClientProcess(Process):
                         sockt.sendall(bytes(ret, 'ascii'))
                         
                     elif entrada[0] == "begin":
-                        ret = self.begin(entrada[1], entrada[2], conn_db)
+                        ret = self.begin(entrada[1], entrada[2], entrada[3], conn_db)
                         sockt.sendall(bytes(ret, 'ascii'))
 
                     elif entrada[0] == "S": # Aceitando convite
@@ -245,7 +245,7 @@ class ClientProcess(Process):
         cursor.close()
         return 'leaders SUCESSO ' + str(json.dumps(result).replace(" ", ""))
 
-    def begin(self, usuario_a_convidar, porta_p2p, conn_db):
+    def begin(self, usuario_a_convidar, ip_p2p, porta_p2p, conn_db):
         cursor = conn_db.cursor()
         try:
             cursor.execute(f"""SELECT nome, status, em_partida_com FROM usuario WHERE nome = "{usuario_a_convidar}" """)
@@ -267,7 +267,7 @@ class ClientProcess(Process):
         try:
             cursor.execute(f"""
                 INSERT INTO convite (convidante, convidado, ip_convidante, porta_convidante)
-                VALUES ("{self.usuario}", "{usuario_a_convidar}", "{self.ip}", "{porta_p2p}")
+                VALUES ("{self.usuario}", "{usuario_a_convidar}", "{ip_p2p}", "{porta_p2p}")
             """)
             self.id_convite_enviado_bd = cursor.lastrowid
         except Error as e:
@@ -383,7 +383,7 @@ def inicia_bd(conn):
     conn.close()
 
 def main():
-    TCP_IP = '127.0.0.1'
+    TCP_IP = '0.0.0.0'
     TCP_PORT = int(sys.argv[1])
     TCP_PORT_SSL = int(sys.argv[2])
 

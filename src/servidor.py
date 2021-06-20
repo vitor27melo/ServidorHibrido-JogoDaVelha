@@ -62,7 +62,7 @@ class ClientProcess(Process):
                 break
             self.heartbeats_nao_respondidos += 1
             if self.heartbeats_nao_respondidos >= 3:
-                print("O cliente de IP ", self.ip, " encontra-se irresponsivo e será finalizado.")
+                log(f"""O cliente de IP {self.ip} econtra-se irresponsivo (heartbeats) e será finalizado!""")
                 self.exit(conn_db)
                 sys.exit()
             try:
